@@ -1,8 +1,8 @@
-// controllers/FilesController.js
-const { User, File } = require('../models');
+const User = require('../models/User');
+const File = require('../models/File');
 
 class FilesController {
-  static async postUpload(req, res) {
+  static async getShow(req, res) {
     try {
       // Retrieve the user based on the token
       const user = await User.findOne({ token: req.headers['x-token'] });
@@ -10,58 +10,39 @@ class FilesController {
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
-      // Check required fields
-      const { name, type, parentId = 0, isPublic = false, data } = req.body;
-      if (!name) {
-        return res.status(400).json({ error: 'Missing name' });
-      }
-      if (!type || !['folder', 'file', 'image'].includes(type)) {
-        return res.status(400).json({ error: 'Missing type' });
-      }
-      if (type !== 'folder' && !data) {
-        return res.status(400).json({ error: 'Missing data' });
+      // Retrieve the file document based on the ID
+      const file = await File.findOne({ _id: req.params.id, userId: user.id });
+      if (!file) {
+        return res.status(404).json({ error: 'Not found' });
       }
 
-      // Check parent folder
-      if (parentId) {
-        const parentFile = await File.findById(parentId);
-        if (!parentFile) {
-          return res.status(400).json({ error: 'Parent not found' });
-        }
-        if (parentFile.type !== 'folder') {
-          return res.status(400).json({ error: 'Parent is not a folder' });
-        }
+      return res.json(file);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  }
+
+  static async getIndex(req, res) {
+    try {
+      // Retrieve the user based on the token
+      const user = await User.findOne({ token: req.headers['x-token'] });
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
       }
 
-      // Create the file
-      let filePath;
-      if (type === 'folder') {
-        const file = await File.create({
-          userId: user.id,
-          name,
-          type,
-          isPublic,
-          parentId,
-        });
-        return res.status(201).json(file);
-      } else {
-        // Save the file locally
-        const folderPath = process.env.FOLDER_PATH || '/tmp/files_manager';
-        filePath = `${folderPath}/${require('uuid').v4()}`;
-        await require('fs').promises.writeFile(filePath, Buffer.from(data, 'base64'));
+      // Retrieve the file documents based on the parentId and pagination
+      const page = req.query.page ? parseInt(req.query.page) : 0;
+      const parentId = req.query.parentId ? req.query.parentId : '0';
+      const files = await File.aggregate([
+        { $match: { userId: user.id, parentId } },
+        { $skip: page * 20 },
+        { $limit: 20 },
+      ]);
 
-        const file = await File.create({
-          userId: user.id,
-          name,
-          type,
-          isPublic,
-          parentId,
-          localPath: filePath,
-        });
-        return res.status(201).json(file);
-      }
-    } catch (error) {
-      console.error(error);
+      return res.json(files);
+    } catch (err) {
+      console.error(err);
       return res.status(500).json({ error: 'Internal Server Error' });
     }
   }
