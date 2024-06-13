@@ -1,28 +1,54 @@
-const dbClient = require('../utils/db');
-const redisClient = require('../utils/redis');
+const { MongoClient, ObjectId } = require('mongodb');
 
-class AppController {
-  static async getStatus(req, res) {
+class DBClient {
+  constructor() {
+    this.client = new MongoClient(process.env.DB_HOST || 'mongodb://localhost:27017');
+    this.db = null;
+  }
+
+  async connect() {
+    if (this.db) return this.db;
+    await this.client.connect();
+    this.db = this.client.db('files_manager');
+    return this.db;
+  }
+
+  async isAlive() {
     try {
-      const isRedisAlive = await redisClient.isAlive();
-      const isDBAlive = await dbClient.isAlive();
-      res.status(200).json({ redis: isRedisAlive, db: isDBAlive });
+      const db = await this.connect();
+      await db.command({ ping: 1 });
+      return true;
     } catch (error) {
-      console.error('Error getting status:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      console.error('Error checking DB connection:', error);
+      return false;
     }
   }
 
-  static async getStats(req, res) {
-    try {
-      const numUsers = await dbClient.nbUsers();
-      const numFiles = await dbClient.nbFiles();
-      res.status(200).json({ users: numUsers, files: numFiles });
-    } catch (error) {
-      console.error('Error getting stats:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
+  async nbUsers() {
+    const db = await this.connect();
+    const usersCollection = db.collection('users');
+    return await usersCollection.countDocuments();
+  }
+
+  async nbFiles() {
+    const db = await this.connect();
+    const filesCollection = db.collection('files');
+    return await filesCollection.countDocuments();
+  }
+
+  async getUserByEmail(email) {
+    const db = await this.connect();
+    const usersCollection = db.collection('users');
+    return await usersCollection.findOne({ email });
+  }
+
+  async createUser(email, hashedPassword) {
+    const db = await this.connect();
+    const usersCollection = db.collection('users');
+    const result = await usersCollection.insertOne({ email, password: hashedPassword });
+    return await usersCollection.findOne({ _id: result.insertedId });
   }
 }
 
-module.exports = AppController;
+const dbClient = new DBClient();
+module.exports = dbClient;
