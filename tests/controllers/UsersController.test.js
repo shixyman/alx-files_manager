@@ -48,4 +48,5 @@ describe('+ UserController', () => {
           expect(res.body).to.deep.eql({ error: 'Missing password' });
           done();
         });
-    });
+    })
+});
