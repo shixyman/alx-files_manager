@@ -1,18 +1,26 @@
-const dbClient = require('../dbClient');
+/* eslint-disable import/no-named-as-default */
+import dbClient from '../../utils/db';
 
-describe('dbClient', () => {
-  afterAll(async () => {
-    await dbClient.disconnect();
+describe('+ DBClient utility', () => {
+  before(function (done) {
+    this.timeout(10000);
+    Promise.all([dbClient.usersCollection(), dbClient.filesCollection()])
+      .then(([usersCollection, filesCollection]) => {
+        Promise.all([usersCollection.deleteMany({}), filesCollection.deleteMany({})])
+          .then(() => done())
+          .catch((deleteErr) => done(deleteErr));
+      }).catch((connectErr) => done(connectErr));
   });
 
-  test('should connect to the database', async () => {
-    await dbClient.connect();
-    expect(dbClient.isConnected).toBe(true);
+  it('+ Client is alive', () => {
+    expect(dbClient.isAlive()).to.equal(true);
   });
 
-  test('should create a new user', async () => {
-    const user = await dbClient.createUser({ email: 'test@example.com', password: 'password' });
-    expect(user).toHaveProperty('_id');
-    expect(user).toHaveProperty('email', 'test@example.com');
+  it('+ nbUsers returns the correct value', async () => {
+    expect(await dbClient.nbUsers()).to.equal(0);
+  });
+
+  it('+ nbFiles returns the correct value', async () => {
+    expect(await dbClient.nbFiles()).to.equal(0);
   });
 });
