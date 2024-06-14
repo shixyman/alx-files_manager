@@ -1,83 +1,64 @@
-// Update POST /files endpoint
-app.post('/files', async (req, res) => {
-    // Process the uploaded file
-    const file = req.file;
-    const { userId } = req.body;
-  
-    // Store the file locally and in the database
-    const fileId = await storeFile(file, userId);
-  
-    // Add a job to the fileQueue to generate thumbnails
-    await fileQueue.add({ fileId, userId });
-  
-    res.status(201).json({ id: fileId, userId, name: file.filename, type: file.mimetype, isPublic: true, parentId: null });
-  });
-  
-  // File worker
-  const fileQueue = new Bull('fileQueue');
-  
-  fileQueue.process(async (job) => {
-    const { fileId, userId } = job.data;
-  
-    // Check if fileId and userId are present
-    if (!fileId) {
-      throw new Error('Missing fileId');
-    }
-    if (!userId) {
-      throw new Error('Missing userId');
-    }
-  
-    // Check if the file exists in the database
-    const file = await File.findOne({ _id: fileId, userId });
+import Queue from 'bull';
+import imageThumbnail from 'image-thumbnail';
+import { promises as fs } from 'fs';
+import { ObjectID } from 'mongodb';
+import dbClient from './utils/db';
+
+const fileQueue = new Queue('fileQueue', 'redis://127.0.0.1:6379');
+const userQueue = new Queue('userQueue', 'redis://127.0.0.1:6379');
+
+async function thumbNail(width, localPath) {
+  const thumbnail = await imageThumbnail(localPath, { width });
+  return thumbnail;
+}
+
+fileQueue.process(async (job, done) => {
+  console.log('Processing...');
+  const { fileId } = job.data;
+  if (!fileId) {
+    done(new Error('Missing fileId'));
+  }
+
+  const { userId } = job.data;
+  if (!userId) {
+    done(new Error('Missing userId'));
+  }
+
+  console.log(fileId, userId);
+  const files = dbClient.db.collection('files');
+  const idObject = new ObjectID(fileId);
+  files.findOne({ _id: idObject }, async (err, file) => {
     if (!file) {
-      throw new Error('File not found');
-    }
-  
-    // Generate thumbnails
-    const thumbnailSizes = [500, 250, 100];
-    for (const size of thumbnailSizes) {
-      const thumbnail = await generateThumbnail(file.path, size);
-      await saveThumbnail(file.path, size, thumbnail);
+      console.log('Not found');
+      done(new Error('File not found'));
+    } else {
+      const fileName = file.localPath;
+      const thumbnail500 = await thumbNail(500, fileName);
+      const thumbnail250 = await thumbNail(250, fileName);
+      const thumbnail100 = await thumbNail(100, fileName);
+
+      console.log('Writing files to system');
+      const image500 = `${file.localPath}_500`;
+      const image250 = `${file.localPath}_250`;
+      const image100 = `${file.localPath}_100`;
+
+      await fs.writeFile(image500, thumbnail500);
+      await fs.writeFile(image250, thumbnail250);
+      await fs.writeFile(image100, thumbnail100);
+      done();
     }
   });
-  
-  // Update GET /files/:id/data endpoint
-  app.get('/files/:id/data', async (req, res) => {
-    const { id } = req.params;
-    const { size } = req.query;
-  
-    // Check if the requested size is valid
-    if (![500, 250, 100].includes(parseInt(size))) {
-      return res.status(400).json({ error: 'Invalid size' });
-    }
-  
-    // Construct the file path based on the requested size
-    const filePath = path.join(process.env.FILES_DIR, `${id}_${size}.png`);
-  
-    // Check if the file exists
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Not found' });
-    }
-  
-    // Send the file
-    res.sendFile(filePath);
-  });
-  
-  // Helper functions
-  async function storeFile(file, userId) {
-    // Store the file locally and in the database
-    const fileId = await saveFile(file, userId);
-    return fileId;
+});
+
+userQueue.process(async (job, done) => {
+  const { userId } = job.data;
+  if (!userId) done(new Error('Missing userId'));
+  const users = dbClient.db.collection('users');
+  const idObject = new ObjectID(userId);
+  const user = await users.findOne({ _id: idObject });
+  if (user) {
+    console.log(`Welcome ${user.email}!`);
+  } else {
+    done(new Error('User not found'));
   }
-  
-  async function generateThumbnail(filePath, size) {
-    // Use the image-thumbnail module to generate the thumbnail
-    const thumbnail = await imageThumbnail(filePath, { width: size });
-    return thumbnail;
-  }
-  
-  async function saveThumbnail(filePath, size, thumbnail) {
-    // Save the thumbnail to the same location as the original file
-    const thumbnailPath = path.join(path.dirname(filePath), `${path.basename(filePath, path.extname(filePath))}_${size}.png`);
-    await fs.writeFile(thumbnailPath, thumbnail);
-  }
+});
