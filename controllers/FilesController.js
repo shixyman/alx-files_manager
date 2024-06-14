@@ -46,6 +46,53 @@ class FilesController {
       return res.status(500).json({ error: 'Internal Server Error' });
     }
   }
+  async putPublish(req, res) {
+    try {
+      // Retrieve the user based on the token
+      const user = await User.findByToken(req.headers['x-token']);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+  
+      // Find the file document linked to the user and the ID passed as parameter
+      const file = await File.findOne({ _id: req.params.id, userId: user._id });
+      if (!file) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+  
+      // Update the value of isPublic to true
+      file.isPublic = true;
+      await file.save();
+  
+      return res.status(200).json(file);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
+  
+  async putUnpublish(req, res) {
+    try {
+      // Retrieve the user based on the token
+      const user = await User.findByToken(req.headers['x-token']);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+  
+      // Find the file document linked to the user and the ID passed as parameter
+      const file = await File.findOne({ _id: req.params.id, userId: user._id });
+      if (!file) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+  
+      // Update the value of isPublic to false
+      file.isPublic = false;
+      await file.save();
+  
+      return res.status(200).json(file);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
 }
 
 module.exports = FilesController;
